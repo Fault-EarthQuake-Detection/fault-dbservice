@@ -1,0 +1,52 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL") // Ini untuk aplikasi (pakai pooler)
+  shadowDatabaseUrl = env("DATABASE_URL_NON_POOLING") // Ini khusus untuk migrasi
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+// Model User tetap sama
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  role      Role     @default(USER) // enum Role { USER, ADMIN }
+  createdAt DateTime @default(now()) @map("created_at")
+
+  reports   DetectionReport[]
+
+  @@map("users")
+}
+
+// Model UTAMA: Menggabungkan semua data relevan
+model DetectionReport {
+  id Int @id @default(autoincrement())
+
+  // Data Lokasi (langsung di sini)
+  latitude  Float
+  longitude Float
+  address   String? // Alamat/nama lokasi opsional
+
+  // Data Deteksi (langsung di sini)
+  imageUrl        String  @map("image_url") // URL gambar yang di-upload
+  detectionResult String  @map("detection_result") // Hasil deteksi (misal: "Breksi Sesar")
+  description     String? // Deskripsi temuan
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relasi: Laporan ini dibuat oleh siapa?
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("detection_reports")
+}

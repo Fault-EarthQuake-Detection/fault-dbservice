@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "es2020",          // Target JavaScript modern
+    "module": "commonjs",       // Modul standar untuk Node.js
+    "outDir": "./dist",         // Folder output untuk JavaScript yang di-compile
+    "rootDir": "./src",         // Folder input untuk file TypeScript
+    "strict": true,             // Aktifkan semua pemeriksaan tipe yang ketat
+    "esModuleInterop": true,    // Kompatibilitas modul ES6 dan CommonJS
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*"] // Hanya compile file di dalam folder src
+}
