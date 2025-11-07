@@ -4,55 +4,45 @@ import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 
-// Import middleware auth yang sudah kita buat
-import { authMiddleware, checkRole } from './middleware/auth';
+// Import middleware auth
+import { authMiddleware, checkRole, supabaseAdmin } from './middleware/auth';
+
+// --- IMPORT ROUTE BARU KITA ---
+import authRoutes from './routes/auth';
+
+import cors from 'cors';
 
 // Inisialisasi Prisma Client
 const prisma = new PrismaClient();
-
-// Inisialisasi aplikasi Express
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware untuk membaca JSON body dari request
 app.use(express.json());
 
-// --- Tipe Bantuan untuk Request ---
-// Ini agar TypeScript tahu ada 'req.user' setelah authMiddleware
+app.use(cors({ origin: 'http://localhost:3001' }));
+
+// --- Tipe Bantuan (biarkan saja) ---
 interface AuthRequest extends Request {
-  user?: {
-    id: string; // ID user dari Supabase (ini adalah string UUID)
-    // ... properti lain dari user jika perlu
-  };
+  user?: { id: string; };
 }
 
-// --- DEFINISI ENDPOINT API ---
+// --- PASANG ROUTE AUTH KITA ---
+// Semua rute di /auth (signup, login, magic-link) akan di-handle di sini
+app.use('/auth', authRoutes);
 
-/**
- * GET /
- * Rute sapaan atau health check
- */
-app.get('/', (req: Request, res: Response) => {
-  res.status(200).json({ message: 'Selamat datang di Fault Detection API' });
-});
 
-/**
- * GET /api/detections
- * Dilindungi: Hanya user yang sudah login bisa melihat.
- */
-app.get('/api/detections', authMiddleware, async (req: Request, res: Response) => {
+// --- API DATA (YANG DILINDUNGI) ---
+// Rute ini tetap sama, dijaga oleh authMiddleware
+const apiRouter = express.Router();
+apiRouter.use(authMiddleware); // <-- SEMUA /api/* akan dicek tokennya
+
+apiRouter.get('/detections', async (req: Request, res: Response) => {
+  // ... (kode lo untuk get detections)
   try {
     const detections = await prisma.detectionReport.findMany({
-      orderBy: {
-        createdAt: 'desc', // Tampilkan dari yang terbaru
-      },
+      orderBy: { createdAt: 'desc' },
       include: {
-        // Sertakan data user yang mem-posting (opsional tapi bagus)
-        user: {
-          select: {
-            username: true, // Asumsi Anda punya field 'username' di tabel User
-          },
-        },
+        user: { select: { username: true } },
       },
     });
     res.status(200).json(detections);
@@ -61,32 +51,18 @@ app.get('/api/detections', authMiddleware, async (req: Request, res: Response) =
   }
 });
 
-/**
- * POST /api/detections
- * Dilindungi: Hanya user yang sudah login bisa membuat.
- * ID User diambil dari TOKEN, bukan body.
- */
-app.post('/api/detections', authMiddleware, async (req: Request, res: Response) => {
-  // 'req' di-cast ke AuthRequest agar kita bisa akses req.user
+apiRouter.post('/detections', async (req: Request, res: Response) => {
+  // ... (kode lo untuk post detections)
   const authReq = req as AuthRequest;
-
   try {
-    // Ambil ID user dari middleware (token), BUKAN DARI BODY
     const userId = authReq.user?.id;
-
     if (!userId) {
-      // Ini seharusnya tidak terjadi jika authMiddleware bekerja
       return res.status(401).json({ error: 'User tidak terotentikasi.' });
     }
-
-    // Ambil data dari body (TANPA userId)
     const { latitude, longitude, imageUrl, description, detectionResult } = req.body;
-
-    // Validasi input
     if (!latitude || !longitude || !imageUrl || !detectionResult) {
       return res.status(400).json({ error: 'Field latitude, longitude, imageUrl, dan detectionResult wajib diisi.' });
     }
-
     const newDetection = await prisma.detectionReport.create({
       data: {
         latitude: parseFloat(latitude),
@@ -94,37 +70,54 @@ app.post('/api/detections', authMiddleware, async (req: Request, res: Response) 
         imageUrl,
         description,
         detectionResult,
-        userId: userId, // <-- ID user (string UUID) diambil dari token yang valid
+        userId: userId,
       },
     });
-
     res.status(201).json(newDetection);
   } catch (error) {
-    console.error(error); // Log error untuk debugging
+    console.error(error);
     res.status(500).json({ error: 'Gagal menyimpan data deteksi.' });
   }
 });
 
-/**
- * DELETE /api/detections/:id
- * Dilindungi Ganda: Hanya user login DAN punya role 'ADMIN'.
- */
-app.delete('/api/detections/:id', authMiddleware, checkRole('ADMIN'), async (req: Request, res: Response) => {
-  // Hanya admin yang bisa sampai ke kode ini
+apiRouter.delete('/detections/:id', checkRole('ADMIN'), async (req: Request, res: Response) => {
+  // ... (kode lo untuk delete detections)
   try {
     const { id } = req.params;
     await prisma.detectionReport.delete({
-      where: { id: parseInt(id) }, // Asumsi ID deteksi adalah integer
+      where: { id: parseInt(id) },
     });
-    res.status(204).send(); // No Content
+    res.status(204).send();
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Gagal menghapus deteksi.' });
   }
 });
 
-// --- Menjalankan Server ---
+// Pasang /api router
+app.use('/api', apiRouter);
 
+
+// --- Endpoint Admin Sementara (biarkan saja untuk debug) ---
+app.post('/api/admin/set-role', async (req: Request, res: Response) => {
+  // ... (kode endpoint set-role lo)
+  try {
+    const { user_id, role } = req.body;
+    if (!user_id || !role) {
+      return res.status(400).json({ error: 'user_id dan role wajib diisi' });
+    }
+    const { data, error } = await supabaseAdmin.auth.admin.updateUserById(
+      user_id,
+      { app_metadata: { roles: [role] } }
+    );
+    if (error) throw error;
+    res.status(200).json({ message: `User ${user_id} role updated.`, data });
+  } catch (error: any) {
+    res.status(500).json({ error: 'Gagal update user role', details: error.message });
+  }
+});
+
+// --- Menjalankan Server ---
 app.listen(PORT, () => {
   console.log(`🚀 Server berjalan di http://localhost:${PORT}`);
 });

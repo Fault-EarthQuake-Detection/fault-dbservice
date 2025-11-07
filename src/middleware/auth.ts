@@ -6,14 +6,21 @@ interface AuthRequest extends Request {
   user?: any;
 }
 
-// Inisialisasi Supabase client (cukup pakai URL dan Anon Key)
+// --- PERUBAHAN DI SINI ---
+// Kita pakai Service Role Key (Kunci Master)
 const supabaseUrl = process.env.SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!; // Ambil dari .env
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// Kita inisialisasi sebagai Admin Client dan EXPORT
+export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 /**
  * Middleware untuk memverifikasi token JWT dari Supabase.
- * Ini akan mengecek header 'Authorization: Bearer <TOKEN>'
  */
 export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
@@ -24,21 +31,21 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
 
   const token = authHeader.split(' ')[1];
 
-  // Verifikasi token ke Supabase
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  // --- PERUBAHAN DI SINI ---
+  // Verifikasi token pakai Admin Client (supabaseAdmin)
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
 
   if (error || !user) {
     return res.status(401).json({ error: 'Akses ditolak: Token tidak valid.' });
   }
 
-  // Jika token valid, simpan data user di request untuk dipakai endpoint lain
+  // Jika token valid, simpan data user di request
   req.user = user;
-  next(); // Lanjut ke handler berikutnya (atau middleware role)
+  next(); // Lanjut
 };
 
 /**
  * Middleware untuk mengecek role user.
- * HARUS dijalankan SETELAH authMiddleware.
  */
 export const checkRole = (requiredRole: string) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -47,6 +54,7 @@ export const checkRole = (requiredRole: string) => {
     }
 
     // Ambil roles dari metadata user di Supabase
+    // Ini sekarang akan berhasil karena kita pakai Service Key
     const userRoles = req.user.app_metadata?.roles || [];
 
     if (!userRoles.includes(requiredRole)) {
