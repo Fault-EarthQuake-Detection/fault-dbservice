@@ -10,8 +10,16 @@ const prisma = new PrismaClient();
 router.post('/signup', async (req: Request, res: Response) => {
   const { email, username, password } = req.body;
 
+  // Validasi input dasar
   if (!email || !username || !password) {
     return res.status(400).json({ error: 'Email, username, dan password wajib diisi.' });
+  }
+
+  // validasi panjang password 
+  if (password.length < 8 || password.length > 20) {
+    return res.status(400).json({
+      error: 'Password harus memiliki panjang antara 8 hingga 20 karakter.',
+    });
   }
 
   try {
