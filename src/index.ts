@@ -67,7 +67,7 @@ apiRouter.post('/detections', async (req: Request, res: Response) => {
       data: {
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
-        imageUrl,
+        originalImageUrl: imageUrl,
         description,
         detectionResult,
         userId: userId,

@@ -31,22 +31,30 @@ model User {
 }
 
 // Model UTAMA: Menggabungkan semua data relevan
+// ... (bagian atas sama) ...
+
+// Model UTAMA: Menggabungkan semua data relevan
 model DetectionReport {
   id Int @id @default(autoincrement())
 
-  // Data Lokasi (langsung di sini)
+  // Data Lokasi
   latitude  Float
   longitude Float
-  address   String? // Alamat/nama lokasi opsional
+  address   String? 
 
-  // Data Deteksi (langsung di sini)
-  imageUrl        String  @map("image_url") // URL gambar yang di-upload
-  detectionResult String  @map("detection_result") // Hasil deteksi (misal: "Breksi Sesar")
-  description     String? // Deskripsi temuan
-
+  // --- UPDATE: PISAHKAN URL GAMBAR ---
+  originalImageUrl String  @map("original_image_url") // Foto asli dari upload user
+  overlayImageUrl  String  @map("overlay_image_url")  // Hasil deteksi (warna merah + background)
+  maskImageUrl     String  @map("mask_image_url")     // Hasil hitam-putih (opsional, tapi bagus disimpan)
+  
+  // --- UPDATE: DATA HASIL DETEKSI LEBIH DETAIL ---
+  statusLevel     String  @map("status_level")      // Contoh: "PERINGATAN", "WASPADA", "AMAN"
+  faultType       String? @map("fault_type")        // Contoh: "Pola Tegak", "Pola Mendatar"
+  description     String? @db.Text                  // Penjelasan lengkap paragraf
+  
   createdAt DateTime @default(now()) @map("created_at")
 
-  // Relasi: Laporan ini dibuat oleh siapa?
+  // Relasi
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id])
 
