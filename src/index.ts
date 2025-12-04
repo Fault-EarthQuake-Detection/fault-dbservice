@@ -12,6 +12,8 @@ import authRoutes from './routes/auth';
 
 import cors from 'cors';
 
+import bcrypt from 'bcryptjs'; 
+
 // Inisialisasi Prisma Client
 const prisma = new PrismaClient();
 const app = express();
@@ -186,6 +188,145 @@ app.post('/api/admin/set-role', async (req: Request, res: Response) => {
     res.status(200).json({ message: `User ${user_id} role updated.`, data });
   } catch (error: any) {
     res.status(500).json({ error: 'Gagal update user role', details: error.message });
+  }
+});
+
+// --- API: UPDATE PROFILE (Username & Avatar) ---
+// --- API: UPDATE PROFILE (Username & Avatar) ---
+// --- API: UPDATE PROFILE (Username & Avatar) ---
+apiRouter.put('/profile', async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  try {
+    const userId = authReq.user?.id;
+    const userEmail = authReq.user?.email; // Kita butuh email untuk kasus 'create'
+    const { username, avatarUrl } = req.body;
+
+    if (!userId || !userEmail) {
+      return res.status(401).json({ error: 'Unauthorized: User ID atau Email tidak ditemukan.' });
+    }
+
+    // --- PERBAIKAN: Gunakan UPSERT (Update jika ada, Create jika belum) ---
+    const updatedUser = await prisma.user.upsert({
+      where: { id: userId },
+      // 1. Jika user sudah ada, update data ini:
+      update: { 
+        username: username,
+        avatarUrl: avatarUrl 
+      },
+      // 2. Jika user belum ada (User Google baru), buat data baru ini:
+      create: {
+        id: userId,
+        email: userEmail,
+        username: username,
+        avatarUrl: avatarUrl,
+        password: 'GOOGLE_OAUTH_USER_DUMMY_PASSWORD', // Password dummy wajib diisi
+        role: 'USER'
+      }
+    });
+
+    // 2. Update Metadata di Supabase (Agar sinkron)
+    try {
+      await supabaseAdmin.auth.admin.updateUserById(userId, {
+        user_metadata: { username: username, avatar_url: avatarUrl }
+      });
+    } catch (metaError) {
+      console.warn("Gagal update metadata Supabase (tidak kritikal).", metaError);
+    }
+
+    res.json({ message: 'Profil berhasil diperbarui', user: updatedUser });
+  } catch (error) {
+    console.error("Error update profile:", error);
+    res.status(500).json({ error: 'Gagal memperbarui profil. Username mungkin sudah digunakan.' });
+  }
+});
+
+// ... (kode import dan inisialisasi lainnya tetap sama) ...
+
+// --- 2. Tambahkan Endpoint ini di bawah endpoint /profile ---
+
+// --- API: GANTI PASSWORD (Sinkron DB Lokal & Supabase) ---
+apiRouter.put('/change-password', async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  try {
+    const userId = authReq.user?.id;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: 'Password lama dan baru wajib diisi.' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password baru minimal 6 karakter.' });
+    }
+
+    // A. Ambil data user dari DB Lokal
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: 'User tidak ditemukan.' });
+
+    // B. Cek apakah user ini login via Google (password dummy)
+    // Jika user Google mencoba hit API ini (misal lewat Postman), kita tolak
+    if (user.password === 'GOOGLE_OAUTH_USER_DUMMY_PASSWORD' || user.password === 'GOOGLE_OAUTH_USER') {
+      return res.status(403).json({ error: 'Akun Google tidak dapat mengganti password di sini.' });
+    }
+
+    // C. Verifikasi Password Lama
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ error: 'Password lama salah.' });
+    }
+
+    // D. Hash Password Baru
+    const salt = await bcrypt.genSalt(10);
+    const newHashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // E. Update di Database Lokal (Prisma)
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: newHashedPassword }
+    });
+
+    // F. Update di Supabase Auth (Admin)
+    const { error: supabaseError } = await supabaseAdmin.auth.admin.updateUserById(
+      userId,
+      { password: newPassword } // Supabase butuh plain text, dia akan hash sendiri
+    );
+
+    if (supabaseError) {
+      // Jika update supabase gagal, kembalikan (rollback) DB lokal? 
+      // Untuk sederhananya kita log error saja, tapi user harus tau.
+      console.error("Gagal update password Supabase:", supabaseError);
+      return res.status(500).json({ error: 'Gagal sinkronisasi password ke sistem Auth.' });
+    }
+
+    res.json({ message: 'Password berhasil diganti. Silakan login ulang.' });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Terjadi kesalahan server.' });
+  }
+});
+
+apiRouter.post('/feedback', async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  try {
+    const userId = authReq.user?.id;
+    const { content } = req.body;
+
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!content) return res.status(400).json({ error: 'Isi saran tidak boleh kosong.' });
+
+    await prisma.feedback.create({
+      data: {
+        content: content,
+        userId: userId
+      }
+    });
+
+    res.status(201).json({ message: 'Terima kasih atas saran Anda!' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengirim saran.' });
   }
 });
 

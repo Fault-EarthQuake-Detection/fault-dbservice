@@ -23,9 +23,11 @@ model User {
   username  String   @unique
   password  String   // <-- WAJIB ADA, untuk hash bcrypt
   role      Role     @default(USER)
+  avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
 
   reports   DetectionReport[]
+  feedbacks Feedback[]
 
   @@map("users")
 }
@@ -59,4 +61,15 @@ model DetectionReport {
   user   User   @relation(fields: [userId], references: [id])
 
   @@map("detection_reports")
+}
+
+model Feedback {
+  id        Int      @id @default(autoincrement())
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("feedbacks")
 }
