@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-app.use(cors({ origin: 'http://localhost:3001' }));
+app.use(cors({ origin: ['http://localhost:3001', '*'] }));
 
 // --- PERBAIKAN INTERFACE (CRITICAL FIX) ---
 // Menambahkan properti 'email' agar tidak error saat diakses
@@ -47,15 +47,58 @@ app.use('/auth', authRoutes);
 const apiRouter = express.Router();
 apiRouter.use(authMiddleware); // <-- SEMUA /api/* akan dicek tokennya
 
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'Fault Detection Server is Running', 
+    timestamp: new Date() 
+  });
+});
+
 apiRouter.get('/detections', async (req: Request, res: Response) => {
   try {
+    // Cek apakah ada parameter pagination (biasanya dikirim Flutter)
+    const page = req.query.page ? parseInt(req.query.page as string) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+
+    if (page && page > 0) {
+      // --- LOGIKA UNTUK FLUTTER (PAGINATION) ---
+      const skip = (page - 1) * limit;
+      
+      const [detections, total] = await prisma.$transaction([
+        prisma.detectionReport.findMany({
+          skip: skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            user: { select: { username: true, avatarUrl: true } }, // Include avatar juga buat mobile
+          },
+        }),
+        prisma.detectionReport.count(),
+      ]);
+
+      return res.status(200).json({
+        data: detections,
+        meta: {
+          total,
+          page,
+          last_page: Math.ceil(total / limit),
+        }
+      });
+    }
+
+    // --- LOGIKA LAMA (UNTUK NEXT.JS) - TETAP JALAN SEPERTI BIASA ---
+    // Next.js biasanya request tanpa query ?page=...
     const detections = await prisma.detectionReport.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
         user: { select: { username: true } },
       },
+      // Opsional: Batasi limit default biar server ga berat kalau data ribuan
+      take: 100, 
     });
     res.status(200).json(detections);
+
   } catch (error) {
     res.status(500).json({ error: 'Gagal mengambil data deteksi.' });
   }
@@ -304,6 +347,38 @@ apiRouter.put('/change-password', async (req: Request, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Terjadi kesalahan server.' });
+  }
+});
+
+// --- API KHUSUS FLUTTER: FORCE SYNC USER ---
+// Dipanggil oleh Flutter tepat setelah Login Google berhasil
+apiRouter.post('/sync-user', async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  try {
+    const userId = authReq.user?.id;
+    const userEmail = authReq.user?.email;
+
+    if (!userId || !userEmail) {
+      return res.status(401).json({ error: 'Token tidak valid.' });
+    }
+
+    // Gunakan UPSERT: Buat jika belum ada, Update jika sudah ada (biar aman)
+    const user = await prisma.user.upsert({
+      where: { id: userId },
+      update: { email: userEmail }, // Update email jaga-jaga kalau berubah
+      create: {
+        id: userId,
+        email: userEmail,
+        username: userEmail.split('@')[0] + '_' + Math.floor(Math.random() * 1000),
+        password: 'GOOGLE_OAUTH_USER_FLUTTER', // Penanda user dari Flutter
+        role: 'USER',
+      },
+    });
+
+    res.status(200).json({ message: 'User synced successfully', user });
+  } catch (error) {
+    console.error("Sync error:", error);
+    res.status(500).json({ error: 'Gagal sinkronisasi user.' });
   }
 });
 
