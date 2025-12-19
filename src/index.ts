@@ -24,7 +24,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-app.use(cors({ origin: ['http://localhost:3001', '*'] }));
+// Ganti baris ini:
+// app.use(cors({ origin: 'http://localhost:3001' }));
+
+// Menjadi ini (Allow All):
+app.use(cors());
 
 // --- PERBAIKAN INTERFACE (CRITICAL FIX) ---
 // Menambahkan properti 'email' agar tidak error saat diakses
