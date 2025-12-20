@@ -64,3 +64,36 @@ export const checkRole = (requiredRole: string) => {
     next(); // Role sesuai, lanjut
   };
 };
+
+// src/middleware/auth.ts
+import { PrismaClient } from '@prisma/client';
+// ... import authMiddleware yang sudah ada
+
+const prisma = new PrismaClient();
+
+// Middleware Check Admin
+export const isAdmin = async (req: any, res: Response, next: NextFunction) => {
+  try {
+    // req.user sudah diisi oleh authMiddleware sebelumnya
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized: No User ID" });
+    }
+
+    // Cek Role di Database Lokal
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true }
+    });
+
+    if (user?.role !== 'ADMIN') {
+      return res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+
+    next();
+  } catch (error) {
+    console.error("Admin Check Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};

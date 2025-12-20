@@ -60,6 +60,10 @@ model DetectionReport {
   userId String @map("user_id")
   user   User   @relation(fields: [userId], references: [id])
 
+  isValidated Boolean   @default(false) @map("is_validated") // Default belum valid
+  validatedAt DateTime? @map("validated_at")
+  validatedBy String?   @map("validated_by") // ID Admin yang memvalidasi
+
   @@map("detection_reports")
 }
 
