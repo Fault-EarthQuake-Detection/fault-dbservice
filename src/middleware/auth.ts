@@ -1,5 +1,9 @@
+// src/middleware/auth.ts
+
 import { createClient } from '@supabase/supabase-js';
 import { Request, Response, NextFunction } from 'express';
+
+import prisma from '../utils/prisma';
 
 // Tipe kustom untuk menambahkan 'user' ke objek Request Express
 interface AuthRequest extends Request {
@@ -66,10 +70,6 @@ export const checkRole = (requiredRole: string) => {
 };
 
 // src/middleware/auth.ts
-import { PrismaClient } from '@prisma/client';
-// ... import authMiddleware yang sudah ada
-
-const prisma = new PrismaClient();
 
 // Middleware Check Admin
 export const isAdmin = async (req: any, res: Response, next: NextFunction) => {

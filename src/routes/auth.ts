@@ -1,15 +1,30 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { supabaseAdmin } from '../middleware/auth'; // Kita import client admin
 import bcrypt from 'bcryptjs';
+import {z} from 'zod';
+
 
 const router = Router();
-const prisma = new PrismaClient();
+
+const signupSchema = z.object({
+  username: z.string()
+    .min(3, "Username minimal 3 karakter")
+    .regex(/^[a-zA-Z0-9_]+$/, "Username hanya boleh huruf, angka, dan underscore"),
+  email: z.string().email("Format email tidak valid"),
+  password: z.string()
+    .min(8, "Password minimal 8 karakter")
+    .regex(/[A-Z]/, "Harus mengandung huruf besar")
+    .regex(/[0-9]/, "Harus mengandung angka")
+    .regex(/[^a-zA-Z0-9]/, "Harus mengandung simbol unik (!@#$)"),
+});
 
 // --- 1. SIGN UP (Username, Email, Password) ---
 router.post('/signup', async (req: Request, res: Response) => {
-  const { email, username, password } = req.body;
 
+  const validatedData = signupSchema.parse(req.body);
+  const { email, username, password } = validatedData;
+  
   if (!email || !username || !password) {
     return res.status(400).json({ error: 'Email, username, dan password wajib diisi.' });
   }
@@ -48,10 +63,16 @@ router.post('/signup', async (req: Request, res: Response) => {
     res.status(201).json({ message: 'User berhasil dibuat.', user: newUser });
   
   } catch (error: any) {
+
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.issues[0].message });
+    }
+
     // Handle jika username/email sudah ada
     if (error.code === 'P2002') { // Kode unik constraint Prisma
       return res.status(400).json({ error: 'Email atau username sudah terdaftar.' });
     }
+    
     console.error(error);
     res.status(500).json({ error: 'Gagal membuat user.' });
   }
