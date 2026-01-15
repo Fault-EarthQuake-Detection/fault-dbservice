@@ -4,7 +4,7 @@ import "dotenv/config";
 import { isAdmin } from "./middleware/auth"; // Import middleware baru
 
 import express, { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from './utils/prisma';
 
 // Import middleware auth
 import { authMiddleware, checkRole, supabaseAdmin } from "./middleware/auth";
@@ -16,8 +16,9 @@ import cors from "cors";
 
 import bcrypt from "bcryptjs";
 
+import Sentiment from 'sentiment';
+
 // Inisialisasi Prisma Client
-const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -590,6 +591,95 @@ app.get('/api/auth/me', authMiddleware, async (req, res) => {
   }
 });
 
+// --- 6. GET Feedback dengan Sentiment Analysis (ADMIN) ---
+// --- ROUTE FEEDBACK ANALYTICS (ADMIN) ---
+app.get(
+  "/api/admin/feedbacks-analytics",
+  authMiddleware,
+  isAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const sentiment = new Sentiment();
+
+      // 1. DAFTARKAN KAMUS BAHASA INDONESIA (Sederhana)
+      // Tambahkan kata-kata yang relevan dengan aplikasi kamu di sini
+      const idLanguage = {
+        labels: {
+          // POSITIF (Score 1 s/d 5)
+          'bagus': 3, 'keren': 4, 'mantap': 4, 'hebat': 4, 'puas': 3, 
+          'suka': 3, 'terbaik': 5, 'bermanfaat': 4, 'membantu': 3, 
+          'cepat': 3, 'aman': 3, 'mudah': 3, 'nyaman': 3, 'oke': 2,
+          'good': 3, 'love': 4, 'ok': 2, 'bisa': 1, 'lancar': 3, 
+          'informatif': 4, 'jelas': 3, 'rapi': 3, 'senang': 3, 'terima kasih': 4,
+          'makasih': 3, 'top': 4, 'gacor': 5,
+          
+          // NEGATIF (Score -1 s/d -5)
+          'jelek': -3, 'buruk': -4, 'rusak': -5, 'kecewa': -4, 
+          'lambat': -3, 'susah': -3, 'ribet': -3, 'gagal': -4, 
+          'parah': -4, 'benci': -5, 'lelet': -3, 'lemot': -3, 
+          'bug': -2, 'error': -2, 'gangguan': -3, 'mahal': -3, 
+          'kasar': -4, 'kotor': -3, 'sampah': -5, 'bodoh': -4, 
+          'tolol': -5, 'tidak': -1, 'gak': -1, 'ga': -1, 'jangan': -2
+        }
+      };
+
+      // 2. Register Bahasa 'id' ke library
+      sentiment.registerLanguage('id', idLanguage);
+
+      // 3. Ambil data dari DB
+      const feedbacks = await prisma.feedback.findMany({
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: { select: { username: true, email: true, avatarUrl: true } },
+        },
+      });
+
+      // 4. Analisis dengan opsi { language: 'id' }
+      let positiveCount = 0;
+      let negativeCount = 0;
+      let neutralCount = 0;
+
+      const analyzedFeedbacks = feedbacks.map((item: any) => {
+        // PENTING: Pakai option { language: 'id' }
+        const result = sentiment.analyze(item.content, { language: 'id' });
+        const score = result.score; 
+
+        // Debugging: Cek di terminal backend kalau masih penasaran
+        // console.log(`Review: ${item.content} | Score: ${score}`);
+
+        let sentimentLabel = "Netral";
+        if (score > 0) {
+          sentimentLabel = "Positif";
+          positiveCount++;
+        } else if (score < 0) {
+          sentimentLabel = "Negatif";
+          negativeCount++;
+        } else {
+          neutralCount++;
+        }
+
+        return {
+          ...item,
+          sentimentScore: score,
+          sentimentLabel: sentimentLabel,
+        };
+      });
+
+      res.json({
+        feedbacks: analyzedFeedbacks,
+        summary: [
+          { name: 'Positif', value: positiveCount, fill: '#22c55e' }, // Hijau
+          { name: 'Netral', value: neutralCount, fill: '#94a3b8' },   // Abu
+          { name: 'Negatif', value: negativeCount, fill: '#ef4444' }, // Merah
+        ]
+      });
+
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Gagal memuat analisis feedback" });
+    }
+  }
+);
 // ... (sisa kode routes admin dll)
 
 // --- Menjalankan Server ---
