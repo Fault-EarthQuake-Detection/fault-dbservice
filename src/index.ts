@@ -14,9 +14,9 @@ import authRoutes from "./routes/auth";
 
 import cors from "cors";
 
-import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";  
 
-import Sentiment from 'sentiment';
+import { Stemmer, Tokenizer } from 'sastrawijs';
 
 // Inisialisasi Prisma Client
 const app = express();
@@ -599,34 +599,37 @@ app.get(
   isAdmin,
   async (req: Request, res: Response) => {
     try {
-      const sentiment = new Sentiment();
+      // --- 1. PERSIAPAN ALAT NLP ---
+      const stemmer = new Stemmer();
+      const tokenizer = new Tokenizer();
 
-      // 1. DAFTARKAN KAMUS BAHASA INDONESIA (Sederhana)
-      // Tambahkan kata-kata yang relevan dengan aplikasi kamu di sini
-      const idLanguage = {
-        labels: {
-          // POSITIF (Score 1 s/d 5)
-          'bagus': 3, 'keren': 4, 'mantap': 4, 'hebat': 4, 'puas': 3, 
-          'suka': 3, 'terbaik': 5, 'bermanfaat': 4, 'membantu': 3, 
-          'cepat': 3, 'aman': 3, 'mudah': 3, 'nyaman': 3, 'oke': 2,
-          'good': 3, 'love': 4, 'ok': 2, 'bisa': 1, 'lancar': 3, 
-          'informatif': 4, 'jelas': 3, 'rapi': 3, 'senang': 3, 'terima kasih': 4,
-          'makasih': 3, 'top': 4, 'gacor': 5,
-          
-          // NEGATIF (Score -1 s/d -5)
-          'jelek': -3, 'buruk': -4, 'rusak': -5, 'kecewa': -4, 
-          'lambat': -3, 'susah': -3, 'ribet': -3, 'gagal': -4, 
-          'parah': -4, 'benci': -5, 'lelet': -3, 'lemot': -3, 
-          'bug': -2, 'error': -2, 'gangguan': -3, 'mahal': -3, 
-          'kasar': -4, 'kotor': -3, 'sampah': -5, 'bodoh': -4, 
-          'tolol': -5, 'tidak': -1, 'gak': -1, 'ga': -1, 'jangan': -2
-        }
+      // Dictionary Kata Dasar (Root Words) & Bobotnya
+      // Perhatikan: Gunakan kata dasar saja (bantu, bukan membantu) karena kita akan stemming dulu.
+      const lexicon: Record<string, number> = {
+        // POSITIF
+        'bagus': 3, 'keren': 4, 'mantap': 4, 'hebat': 4, 'puas': 3, 
+        'suka': 3, 'baik': 3, 'manfaat': 4, 'bantu': 3, 'cepat': 3, 
+        'aman': 3, 'mudah': 3, 'nyaman': 3, 'oke': 2, 'lancar': 3, 
+        'jelas': 3, 'rapi': 3, 'senang': 3, 'kasih': 2, 'terima': 2, // untuk terima kasih
+        'top': 4, 'gacor': 5, 'valid': 4, 'akurat': 4,
+        
+        // NEGATIF
+        'jelek': -3, 'buruk': -4, 'rusak': -5, 'kecewa': -4, 
+        'lambat': -3, 'susah': -3, 'sulit': -3, 'ribet': -3, 'gagal': -4, 
+        'parah': -4, 'benci': -5, 'lelet': -3, 'lemot': -3, 
+        'bug': -2, 'error': -2, 'ganggu': -3, 'mahal': -3, 
+        'kasar': -4, 'kotor': -3, 'sampah': -5, 'bodoh': -4, 
+        'tolol': -5, 'tidak': -2, 'jangan': -2, 'kurang': -2
       };
 
-      // 2. Register Bahasa 'id' ke library
-      sentiment.registerLanguage('id', idLanguage);
+      // Stopwords (Kata yang diabaikan/Filtering)
+      const stopWords = [
+        "yang", "di", "ke", "dari", "dan", "atau", "ini", "itu", "juga",
+        "saya", "aku", "kamu", "dia", "mereka", "kita", "adalah", "pada",
+        "dengan", "bisa", "akan", "sudah", "lagi", "ada"
+      ];
 
-      // 3. Ambil data dari DB
+      // --- 2. AMBIL DATA DARI DB ---
       const feedbacks = await prisma.feedback.findMany({
         orderBy: { createdAt: "desc" },
         include: {
@@ -634,19 +637,37 @@ app.get(
         },
       });
 
-      // 4. Analisis dengan opsi { language: 'id' }
+      // --- 3. PROSES NLP ---
       let positiveCount = 0;
       let negativeCount = 0;
       let neutralCount = 0;
 
       const analyzedFeedbacks = feedbacks.map((item: any) => {
-        // PENTING: Pakai option { language: 'id' }
-        const result = sentiment.analyze(item.content, { language: 'id' });
-        const score = result.score; 
+        const text = item.content || "";
 
-        // Debugging: Cek di terminal backend kalau masih penasaran
-        // console.log(`Review: ${item.content} | Score: ${score}`);
+        // A. CASEFOLDING
+        const casefolded = text.toLowerCase();
 
+        // B. TOKENIZING (Hapus simbol & pecah jadi array)
+        const cleanText = casefolded.replace(/[^a-z0-9\s-]/g, ''); 
+        const tokens = tokenizer.tokenize(cleanText);
+
+        // C. FILTERING (Stopword Removal)
+        const filtered = tokens.filter((word: string) => !stopWords.includes(word));
+
+        // D. STEMMING (Mengubah ke kata dasar)
+        // Kita stem satu per satu kata yang tersisa
+        const stemmedWords = filtered.map((word: string) => stemmer.stem(word));
+
+        // E. SCORING (Evaluation)
+        let score = 0;
+        stemmedWords.forEach((word: string) => {
+          if (lexicon[word]) {
+            score += lexicon[word];
+          }
+        });
+
+        // Tentukan Label
         let sentimentLabel = "Netral";
         if (score > 0) {
           sentimentLabel = "Positif";
@@ -662,15 +683,22 @@ app.get(
           ...item,
           sentimentScore: score,
           sentimentLabel: sentimentLabel,
+          // Opsional: Balikin hasil preprocessing buat bukti ke dosen
+          nlpSteps: {
+            tokens: tokens,
+            filtered: filtered,
+            stemmed: stemmedWords
+          }
         };
       });
 
+      // --- 4. RETURN RESPONSE ---
       res.json({
         feedbacks: analyzedFeedbacks,
         summary: [
-          { name: 'Positif', value: positiveCount, fill: '#22c55e' }, // Hijau
-          { name: 'Netral', value: neutralCount, fill: '#94a3b8' },   // Abu
-          { name: 'Negatif', value: negativeCount, fill: '#ef4444' }, // Merah
+          { name: 'Positif', value: positiveCount, fill: '#22c55e' },
+          { name: 'Netral', value: neutralCount, fill: '#94a3b8' },
+          { name: 'Negatif', value: negativeCount, fill: '#ef4444' },
         ]
       });
 
