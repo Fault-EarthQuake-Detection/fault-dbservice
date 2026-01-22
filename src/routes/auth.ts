@@ -157,5 +157,46 @@ router.post('/magic-link', async (req: Request, res: Response) => {
   }
 });
 
+// [TAMBAHAN BARU] Endpoint Sync Google Login
+router.post("/google-sync", async (req, res) => {
+  const { id, email, username, avatarUrl } = req.body;
+
+  try {
+    // 1. Cek apakah user sudah ada di DB kita?
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      // User sudah ada, kita update aja (misal user ganti foto profil di Google)
+      // Ini opsional, tapi bagus buat data integrity
+      const updatedUser = await prisma.user.update({
+        where: { email },
+        data: { avatarUrl }, // Update avatar jika ada perubahan
+      });
+      return res.status(200).json({ message: "User synced", user: updatedUser });
+    }
+
+    // 2. User BELUM ada, kita buatkan record baru (Register via Google)
+    // Password kita kosongkan/null karena dia login pake Google
+    const newUser = await prisma.user.create({
+      data: {
+        id: id, // PENTING: Pakai UUID dari Supabase
+        email: email,
+        username: username, 
+        avatarUrl: avatarUrl,
+        password: "", // Isi string kosong atau handle di schema biar nullable
+        role: "USER", // Default role
+      },
+    });
+
+    res.status(201).json({ message: "User created via Google", user: newUser });
+
+  } catch (error) {
+    console.error("Google Sync Error:", error);
+    res.status(500).json({ error: "Gagal sinkronisasi user Google" });
+  }
+});
+
 
 export default router;
