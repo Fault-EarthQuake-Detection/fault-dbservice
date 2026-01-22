@@ -159,42 +159,65 @@ router.post('/magic-link', async (req: Request, res: Response) => {
 
 // [TAMBAHAN BARU] Endpoint Sync Google Login
 router.post("/google-sync", async (req, res) => {
+  console.log("🔔 [Backend] HIT /google-sync");
+  
   const { id, email, username, avatarUrl } = req.body;
 
+  if (!email || !id) {
+    return res.status(400).json({ error: "Email and ID are required" });
+  }
+
   try {
-    // 1. Cek apakah user sudah ada di DB kita?
+    // 1. Cek Email dulu (Prioritas Utama)
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
 
     if (existingUser) {
-      // User sudah ada, kita update aja (misal user ganti foto profil di Google)
-      // Ini opsional, tapi bagus buat data integrity
+      console.log("ℹ️ [Backend] User email matched, updating...");
       const updatedUser = await prisma.user.update({
         where: { email },
-        data: { avatarUrl }, // Update avatar jika ada perubahan
+        data: { avatarUrl }, 
       });
       return res.status(200).json({ message: "User synced", user: updatedUser });
     }
 
-    // 2. User BELUM ada, kita buatkan record baru (Register via Google)
-    // Password kita kosongkan/null karena dia login pake Google
+    // 2. [LOGIKA BARU] Handle Username Bentrok
+    let finalUsername = username || email.split('@')[0];
+    
+    // Cek apakah username calon ini sudah ada yang punya?
+    const checkUsername = await prisma.user.findUnique({
+      where: { username: finalUsername }
+    });
+
+    if (checkUsername) {
+      // Kalau sudah ada, tambahkan 4 digit angka random biar unik
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000); // 1000-9999
+      finalUsername = `${finalUsername}${randomSuffix}`;
+      console.log(`⚠️ Username collision! Auto-generated: ${finalUsername}`);
+    }
+
+    // 3. Buat User Baru dengan username yang sudah aman
+    console.log(`🆕 [Backend] Creating NEW user: ${email} as ${finalUsername}`);
     const newUser = await prisma.user.create({
       data: {
-        id: id, // PENTING: Pakai UUID dari Supabase
+        id: id,
         email: email,
-        username: username, 
+        username: finalUsername, // Pakai username yang sudah di-cek
         avatarUrl: avatarUrl,
-        password: "", // Isi string kosong atau handle di schema biar nullable
-        role: "USER", // Default role
+        password: "GOOGLE_OAUTH_USER_DUMMY_PASSWORD", 
+        role: "USER",
       },
     });
 
     res.status(201).json({ message: "User created via Google", user: newUser });
 
-  } catch (error) {
-    console.error("Google Sync Error:", error);
-    res.status(500).json({ error: "Gagal sinkronisasi user Google" });
+  } catch (error: any) {
+    console.error("🔥 [Backend] PRISMA ERROR:", error);
+    res.status(500).json({ 
+        error: "Gagal sinkronisasi user Google", 
+        details: error.message 
+    });
   }
 });
 
