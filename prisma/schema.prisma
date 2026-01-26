@@ -6,9 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider          = "postgresql"
-  url               = env("DATABASE_URL") // Ini untuk aplikasi (pakai pooler)
-  shadowDatabaseUrl = env("DATABASE_URL_NON_POOLING") // Ini khusus untuk migrasi
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -21,7 +21,7 @@ model User {
   id        String   @id @default(uuid())
   email     String   @unique // <-- WAJIB ADA, untuk Supabase Auth
   username  String   @unique
-  password  String   // <-- WAJIB ADA, untuk hash bcrypt
+  password  String // <-- WAJIB ADA, untuk hash bcrypt
   role      Role     @default(USER)
   avatarUrl String?  @map("avatar_url")
   createdAt DateTime @default(now()) @map("created_at")
@@ -42,18 +42,18 @@ model DetectionReport {
   // Data Lokasi
   latitude  Float
   longitude Float
-  address   String? 
+  address   String?
 
   // --- UPDATE: PISAHKAN URL GAMBAR ---
-  originalImageUrl String  @map("original_image_url") // Foto asli dari upload user
-  overlayImageUrl  String  @map("overlay_image_url")  // Hasil deteksi (warna merah + background)
-  maskImageUrl     String  @map("mask_image_url")     // Hasil hitam-putih (opsional, tapi bagus disimpan)
-  
+  originalImageUrl String @map("original_image_url") // Foto asli dari upload user
+  overlayImageUrl  String @map("overlay_image_url") // Hasil deteksi (warna merah + background)
+  maskImageUrl     String @map("mask_image_url") // Hasil hitam-putih (opsional, tapi bagus disimpan)
+
   // --- UPDATE: DATA HASIL DETEKSI LEBIH DETAIL ---
-  statusLevel     String  @map("status_level")      // Contoh: "PERINGATAN", "WASPADA", "AMAN"
-  faultType       String? @map("fault_type")        // Contoh: "Pola Tegak", "Pola Mendatar"
-  description     String? @db.Text                  // Penjelasan lengkap paragraf
-  
+  statusLevel String  @map("status_level") // Contoh: "PERINGATAN", "WASPADA", "AMAN"
+  faultType   String? @map("fault_type") // Contoh: "Pola Tegak", "Pola Mendatar"
+  description String? @db.Text // Penjelasan lengkap paragraf
+
   createdAt DateTime @default(now()) @map("created_at")
 
   // Relasi
